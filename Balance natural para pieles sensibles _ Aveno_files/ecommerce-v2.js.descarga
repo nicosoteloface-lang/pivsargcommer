@@ -1,0 +1,831 @@
+
+var lista_ean = [];
+var client_token = "";
+var client_dni = "";
+var client_email = "";
+var client_fecha = "";
+var current_user = "";
+var in30Minutes = 1 / 48;
+var $modalDialogEcommerce;
+var seLogueo = false;
+var debug = false;
+
+$.fn.removeClassRegex = function (regex) {
+	return $(this).removeClass(function (index, classes) {
+		return classes.split(/\s+/).filter(function (c) {
+			return regex.test(c);
+		}).join(' ');
+	});
+};
+
+
+function separarCantidadUnidad(campo) {
+  const regex = /^\s*(\d+(?:[\.,]\d+)?)\s*([a-zA-Z]+)\s*$/;
+  const match = campo.match(regex);
+  if (match) {
+    const cantidad = parseFloat(match[1].replace(',', '.')); // en caso de coma como decimal
+    const unidad = match[2];
+    return { cantidad, unidad };
+  } else {
+    return null; 
+  }
+
+}
+/*FUNCION PARA CALCULO PRECIO POR UNIDAD DE VOLUMENTRÍA
+  Ej mostrarPrecioPorUnidad(1250.21,"250ml");
+*/
+function mostrarPrecioPorUnidad(precio, campoCantidad) {
+  const datos = separarCantidadUnidad(campoCantidad); // Usa la función que ya tenés
+  if (!datos) {
+    return "Precio por Kg/Lt: Ver referencias individuales.";
+  }
+ 
+  const { cantidad, unidad } = datos;
+  const unidadLower = unidad.toLowerCase();
+  let cantidadEnUnidadBase;
+  let unidadBase;
+ 
+  switch (unidadLower) {
+    case 'ml':
+    case 'g':
+      if (cantidad <= 50) {
+        cantidadEnUnidadBase = cantidad / 10;
+        unidadBase = `10${unidadLower}`;
+      } else {
+        cantidadEnUnidadBase = cantidad / 1000;
+        unidadBase = unidadLower === 'ml' ? 'Lt' : 'Kg';
+      }
+      break;
+    case 'l':
+      cantidadEnUnidadBase = cantidad;
+      unidadBase = 'Lt';
+      break;
+    case 'kg':
+      cantidadEnUnidadBase = cantidad;
+      unidadBase = 'Kg';
+      break;
+    default:
+      return `Precio por Kg/Lt: Ver referencias individuales.`;
+  }
+ 
+  const precioPorUnidad = precio / cantidadEnUnidadBase;
+  const precioFormateado = precioPorUnidad.toLocaleString("es-AR", {
+    style: "currency",
+    currency: "ARS",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+ 
+  return `Precio por ${unidadBase}: ${precioFormateado}.`;
+
+}
+
+/*FUNCION PARA CALCULO SIN IMPUESTOS
+ Ej mostrarPrecioSinImpuestos(1250.21);
+*/
+function mostrarPrecioSinImpuestos(precio)
+{
+	
+	let precio_sin_iva = precio / 1.21;
+	const precioFormateado = precio_sin_iva.toLocaleString("es-AR", {
+		style: "currency",
+		currency: "ARS",
+		minimumFractionDigits: 2,
+		maximumFractionDigits: 2
+    });
+	return `Precio sin impuestos nacionales: ${precioFormateado}.`;
+}
+
+
+ 
+
+
+function renderBlockUi() {
+		$.blockUI({ message: '<p style="font-color:#fff;">Estas siendo redirigido</p>', css: { width: '100px', left: '50%', marginLeft: '-50px', border: 'none', backgroundColor: 'transparent', zIndex: '10020' }, overlayCSS: { opacity: 0.2, zIndex: '10010' } });
+}						  
+function armar_carrito(carrito,eanEliminado = null) {
+	$(".carrito-ecommerce-btn-checkout").hide();
+	$(".carrito-vacio").hide();
+	$(".carrito-ecommerce-area-precios").hide();
+
+	var json_carrito = $.parseJSON(carrito);
+	var maqueta_item = "<div class='sku-item' data-ean='[[EAN]]'><div class='botones-izq'><div class='mas'><svg viewBox='0 0 24 24' id='icon-keyboard-arrow-up'><path d='M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z'></path></svg></div><div class='cant'></div><div class='menos'><svg viewBox='0 0 24 24' id='icon-keyboard-arrow-down'><path d='M7.41 7.84L12 12.42l4.59-4.58L18 9.25l-6 6-6-6z'></path></svg></div></div><div class='descripcion'></div><div class='precio'></div><div class='botones-der'><div class='eliminar'><svg viewBox='0 0 24 24' id='icon-close'><path d='M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z'></path></svg></div></div></div>";
+	var maqueta_precio = "<div class='precios lbl-precio-sin-descuento'>Subtotal: <span class='precio-sin-descuento'></span></div><div class='precios lbl-precio-descuentos'>Descuentos: <span class='precio-descuentos'></span></div><div class='precios precios-total'>Total: <span class='precio-con-descuento'></span></div>";
+	var maqueta_carrito = "<div class='carrito-vacio'>Aún no agregaste ningún producto al carrito</div>"
+	var maquetaCheckOut = "<div class='carrito-ecommerce-btn-checkout'>FINALIZAR EL PEDIDO</div><br><div><p style='text-align: center; padding-top: 5px; font-weight: bold;font-size: 10px; '>Para finalizar la compra, te estaremos redireccionando a Tienda Andrómaco, donde podrás encontrar productos de todas las marcas de nuestro laboratorio.</p></div>"
+
+	$(".btn-compra-online").removeClassRegex(/^btn-compra-online-/)
+	if (json_carrito.cantidad < 10) {
+		$(".btn-compra-online").addClass("btn-compra-online-" + json_carrito.cantidad.toString());
+	}
+	else {
+		$(".btn-compra-online").addClass("btn-compra-online-10");
+	}
+	$(".carrito-inner").html("");
+	var lista_ean_carrito = [];
+	if (eanEliminado != null){
+		$(".area-ecommerce-boton-agregar[data-agregar_ean='" + eanEliminado.toString() + "'").removeClass("area-ecommerce-boton-agregado");
+		$(".area-ecommerce-boton-agregar[data-agregar_ean='" + eanEliminado.toString() + "'").remove();
+		//$('div[data-ecommerce_ean="' + eanEliminado.toString() + '"]').append(renderbtnAgregar(eanEliminado));
+        $('div[data-ecommerce_ean="' + eanEliminado.toString() + '"]').prepend(renderbtnAgregar(eanEliminado));
+	}
+	$.each(json_carrito.productos, function (index, item) {
+
+		if (lista_ean_carrito.indexOf(item.sku.toString()) < 0) {
+			lista_ean_carrito.push(item.sku.toString());
+
+		}
+
+		//Inhabilito el botón de los productos que ya están en el carrito
+		$(".area-ecommerce-boton-agregar[data-agregar_ean='" + item.sku.toString() + "'").html("<span>AGREGADO</span>");																							 
+		$(".area-ecommerce-boton-agregar[data-agregar_ean='" + item.sku.toString() + "'").addClass("area-ecommerce-boton-agregado");
+
+		$(".carrito-inner").append(maqueta_item.toString().replace("[[EAN]]", item.sku.toString()));
+        var itemPrecioSubTotal = new Intl.NumberFormat('de-DE',{style:'currency',currency:'ARS'}).format(parseFloat(item.subtotal));
+            itemPrecioSubTotal = itemPrecioSubTotal.replace("ARS","");
+		if (item.porcentajeDescuento == 0) {
+			$(".carrito-inner [data-ean='" + item.sku.toString() + "'] .precio").html("$" + itemPrecioSubTotal);
+		}
+		else {
+            var cantidadPorPrecio = new Intl.NumberFormat('de-DE',{style:'currency',currency:'ARS'}).format(parseFloat(parseFloat(item.precio)*parseFloat(item.cantidad)));
+            cantidadPorPrecio = cantidadPorPrecio.replace("ARS","");
+			$(".carrito-inner [data-ean='" + item.sku.toString() + "'] .precio").html("<div class='precio-descuento'>$" + cantidadPorPrecio + "</div><br>$" + itemPrecioSubTotal);
+		}
+		$(".carrito-inner [data-ean='" + item.sku.toString() + "'] .cant").html(item.cantidad.toString());
+	});
+
+	$.ajax({
+		type: "GET",
+		url: "https://www.andromaco.com/DesktopModules/DnnSharp/DnnApiEndpoint/Api.ashx?method=ecommerce_getPortfolio",
+		data: { "ean": lista_ean_carrito.join(",") }
+	}).done(function (data_ean_carrito) {
+		$.each(data_ean_carrito, function (index) {
+			$(".carrito-inner [data-ean='" + data_ean_carrito[index].ean + "'] .descripcion").html("<div class='inner'><div class='col-foto'><img src='" + data_ean_carrito[index].imagen + "' width='100%'/></div><div class='col-texto'>"  + data_ean_carrito[index].nombre + "</div></div>");
+		});
+
+		$(".carrito-ecommerce .carrito-loading").hide();
+		$(".carrito-ecommerce .carrito-inner").show();
+		$(".carrito-ecommerce .precios").show();
+		$(".carrito-ecommerce .carrito-titulo").show();
+		$(".carrito-ecommerce .carrito-volver").show();
+	});
+	if (json_carrito.cantidad == 0){
+		$(".carrito-ecommerce .carrito-inner").html(maqueta_carrito);
+		$(".carrito-ecommerce-btn-checkout").hide();
+	}else if (json_carrito.cantidad> 0){
+		$(".carrito-ecommerce-area-checkout").html(maquetaCheckOut);
+		$(".carrito-ecommerce .carrito-ecommerce-area-precios").html(maqueta_precio);
+		$(".carrito-ecommerce-area-precios").show();
+	}
+	var sumaCarritoSinDescuento =  (json_carrito.total + json_carrito.descuentoTotal)
+		sumaCarritoSinDescuento = new Intl.NumberFormat('de-DE',{style:'currency',currency:'ARS'}).format(parseFloat(sumaCarritoSinDescuento));
+		sumaCarritoSinDescuento = sumaCarritoSinDescuento.replace("ARS","");
+    var carritoTotal = new Intl.NumberFormat('de-DE',{style:'currency',currency:'ARS'}).format(parseFloat(json_carrito.total));
+        carritoTotal = carritoTotal.replace("ARS","");
+    var descuentoTotal = new Intl.NumberFormat('de-DE',{style:'currency',currency:'ARS'}).format(parseFloat(json_carrito.descuentoTotal));
+        descuentoTotal = descuentoTotal.replace("ARS","");
+	$(".carrito-ecommerce .carrito-ecommerce-area-precios .precio-sin-descuento").html("$" + sumaCarritoSinDescuento);
+	$(".carrito-ecommerce .carrito-ecommerce-area-precios .precio-descuentos").html("$" + descuentoTotal);
+	if (json_carrito.descuentoTotal == "0") {
+		$(".carrito-ecommerce .carrito-ecommerce-area-precios .lbl-precio-sin-descuento").hide();
+		$(".carrito-ecommerce .carrito-ecommerce-area-precios .lbl-precio-descuentos").hide();
+	}
+	else {
+		$(".carrito-ecommerce .carrito-ecommerce-area-precios .lbl-precio-sin-descuento").show();
+		$(".carrito-ecommerce .carrito-ecommerce-area-precios .lbl-precio-descuentos").show();
+	}
+	$(".carrito-ecommerce .carrito-ecommerce-area-precios .precio-con-descuento").html("$" + carritoTotal);
+
+	$(".carrito-ecommerce .botones-izq .mas").click(function () {
+		var sku = $(this).parent().parent().attr("data-ean");
+		var cant = $(this).parent().parent().find(".cant").html();
+
+		cant = eval(parseInt(cant) + 1);
+		agregar_carrito(sku, client_token, client_email, cant);
+	});
+
+	$(".carrito-ecommerce .botones-izq .menos").click(function () {
+		var sku = $(this).parent().parent().attr("data-ean");
+		var cant = $(this).parent().parent().find(".cant").html();
+
+		cant = eval(parseInt(cant) - 1);
+		agregar_carrito(sku, client_token, client_email, cant);
+	});
+
+	$(".carrito-ecommerce .botones-der .eliminar").click(function () {
+		var sku = $(this).parent().parent().attr("data-ean");
+		quitar_carrito(sku, client_token, client_email);
+	});
+	
+	var currentDomain = getCurrentDomain();
+		
+	
+	$(".carrito-ecommerce-btn-checkout").click(function () {
+		if ($(".carrito-ecommerce .carrito-inner").html() != "") {
+
+			$.ajax({
+				type: "POST",
+				url: "https://www.andromaco.com/DesktopModules/DnnSharp/DnnApiEndpoint/Api.ashx?method=ecommerce_autologin",
+				data: { "client": client_token }
+			}).done(function (data) {
+				var json_url = $.parseJSON(data);
+				if (json_url.status == "OK") {
+					removeLs('seLogueo');
+					removeLs('ZettiClientEmail');
+					removeLs('ZettiClientToken');
+					location.href = "https://tienda.andromaco.com/externalAuth?destination=%2FverCarrito.htm%3Futm_source%3D"+currentDomain+"%26utm_medium=FinCarrito%26utm_campaign=compra&authToken=" + json_url.tokenCliente
+				}
+				else {
+					alert("Error de autologin");
+				}
+			});
+
+		}
+	});
+}
+
+function clear_ecommerce_cookies()
+{
+	removeLs('ZettiClientToken');
+	client_token = "";
+	removeLs('ZettiClientEmail');
+	client_email = "";
+	removeLs('ZettiClientFecha');
+	client_fecha = "";
+}
+
+
+function set_ecommerce_cookies(json, email) 
+{
+	client_token = json["Client-Token"];
+	client_email = email;
+	client_fecha = Date.now();
+	
+	console.log("SETEO NUEVOS TOKEN PARA EMAIL " +  email);
+
+	if (json != undefined && email != undefined) {
+		setLs('ZettiClientToken', client_token);
+		setLs('ZettiClientEmail', email);
+		setLs('seLogueo', 'true');
+		setLs('ZettiClientFecha',client_fecha);
+	}
+}
+
+function agregar_carrito(sku, cliente, email, cant)
+{
+	removeLs('skuProduct')
+	var url = "";
+	if (cant != 0) {
+		//Si ya existe el item, lo sumo, sino lo agrego.
+		$.ajax({
+			type: "POST",
+			url: "https://www.andromaco.com/DesktopModules/DnnSharp/DnnApiEndpoint/Api.ashx?method=ecommerce_carrito",
+			data: { "client": cliente, "email": email }
+		}).done(function (carrito) {
+			if ($(".carrito-ecommerce .carrito-inner .sku-item[data-ean='" + sku + "']").length || carrito.includes(sku)) {
+				if (loadLs('skuProduct') != undefined) {
+					var carToObject = $.parseJSON(carrito)
+					carToObject = carToObject.productos.filter(filtrado => filtrado.sku == sku)
+					cant = carToObject[0].cantidad + 1
+				}
+				url = "https://www.andromaco.com/DesktopModules/DnnSharp/DnnApiEndpoint/Api.ashx?method=ecommerce_actualizar";				
+			} else {
+				url = "https://www.andromaco.com/DesktopModules/DnnSharp/DnnApiEndpoint/Api.ashx?method=ecommerce_agregar";
+			}
+			$(".carrito-ecommerce .carrito-loading").show();
+			$(".carrito-ecommerce .carrito-inner").hide();
+			$(".carrito-ecommerce .precios").hide();
+			$(".carrito-ecommerce .carrito-titulo").hide();
+			$(".carrito-ecommerce .carrito-volver").hide();
+			$.ajax({
+				type: "POST",
+				url: url,
+				data: { "sku": sku.toString(), "cant": cant, "client": cliente, "email": email }
+			}).done(function (carritoToRender) {
+				armar_carrito(carritoToRender);
+                //Abro el carrito cuando se agrega un producto y apagado el loading.
+				$(".carrito-ecommerce").addClass("carrito-ecommerce-show");
+				$(".area-ecommerce-boton-agregar[data-agregar_ean='" + sku.toString() + "'").removeClass("area-ecommerce-boton-procesando");		
+			});
+
+		});
+		
+		console.log("Producto " + sku + " agregrado al usuario " + email + " - TOKEN: " + cliente);
+
+	}
+	else {
+		quitar_carrito(sku, cliente, email);
+	}
+}
+
+function quitar_carrito(sku, cliente, email) {
+	$(".carrito-ecommerce .carrito-loading").show();
+	$(".carrito-ecommerce .carrito-inner").hide();
+	$(".carrito-ecommerce .precios").hide();
+	$(".carrito-ecommerce .carrito-titulo").hide();
+	$(".carrito-ecommerce .carrito-volver").hide();
+	$.ajax({
+		type: "POST",
+		url: "https://www.andromaco.com/DesktopModules/DnnSharp/DnnApiEndpoint/Api.ashx?method=ecommerce_quitar",
+		data: { "sku": sku.toString(), "client": cliente, "email": email }
+	}).done(function (carrito) {
+		armar_carrito(carrito,sku);
+	});
+}
+
+function get_carrito() 
+{
+	$(".carrito-ecommerce .carrito-loading").show();
+	$(".carrito-ecommerce .carrito-inner").hide();
+	$(".carrito-ecommerce .precios").hide();
+	$(".carrito-ecommerce .carrito-titulo").hide();
+	$(".carrito-ecommerce .carrito-volver").hide();
+	$.ajax({
+		type: "POST",
+		url: "https://www.andromaco.com/DesktopModules/DnnSharp/DnnApiEndpoint/Api.ashx?method=ecommerce_carrito",
+		data: { "client": client_token, "email": client_email }
+	}).done(function (carrito) {
+		armar_carrito(carrito);
+	});
+
+}
+
+function traer_precios()
+{
+
+	$("div[data-ecommerce_ean]").each(function () {
+		if ($(this).attr("data-ecommerce_ean") != "") {
+			if (lista_ean.indexOf($(this).attr("data-ecommerce_ean")) < 0) {
+				lista_ean.push($(this).attr("data-ecommerce_ean"));
+			}
+			$(this).addClass("area-ecommerce-loading");
+			$(this).append("<div></div><div></div><div></div><div></div>");
+		}
+		else {
+			precio = "<div class='area-ecommerce-nodisponible etico'></div>";
+			$(this).html("");
+			$(this).append("<div class='itemGrillaPrecio'>" + precio + "</div>");
+		}
+	});
+
+	if (lista_ean.length != 0) {
+		$.ajax({
+			type: "POST",
+			url: "https://www.andromaco.com/DesktopModules/DnnSharp/DnnApiEndpoint/Api.ashx?method=ecommerce_getPrecios",
+			async: true,
+			data: { "ean": lista_ean.join(",") }
+		}).done(function (data_ean) {
+			
+			$.each(data_ean, function (index) {
+				var ean = data_ean[index].ean;
+				var precio = data_ean[index].precio;
+				var descuento = data_ean[index].descuento;
+				var activo_ecommerce = data_ean[index].activo_ecommerce;
+				var presentacion = data_ean[index].presentacion_ecommerce;
+				var boton = "";
+					
+				if (activo_ecommerce == "True" && precio != "0") 
+                {
+					precio = parseFloat(precio);
+					/*precio = Math.round(precio,1)*/
+					
+					//CALCULO AFIP.
+					var precio_por_unidad = mostrarPrecioPorUnidad(precio,presentacion);
+					var precio_sin_impuestos = mostrarPrecioSinImpuestos(precio);
+					
+					
+					//CREACIÓN CAMPO PRECIO.
+					precio = "<div class='area-ecommerce-precio'>" + new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS'}).format(precio) + "</div>";
+					precio = precio.replace("ARS","");
+					
+					
+					//Sumar legales de AFIP			
+					precio += "<div class='precio-afip'><div class='precio-afip-unidad'>" + precio_por_unidad + "</div><div class='precio-afip-impuestos'>" + precio_sin_impuestos + "</div></div>";
+					
+					
+					boton = renderbtnAgregar(ean.toString()); 
+
+				}
+				else {
+					precio = "<div class='area-ecommerce-nodisponible'></div>";
+									
+					if (document.getElementById(ean) != null || document.getElementById("grilla-"+ean)!= null || document.getElementById("lista-"+ean) != null ) {
+						
+						if (document.getElementById("grilla-"+ean)!= null || document.getElementById("lista-"+ean) != null){
+							
+							var elementoActual = document.getElementById("grilla-"+ean)!= null ? document.getElementById("grilla-"+ean) : document.getElementById("lista-"+ean)
+								elementoActual = elementoActual.id.toString();
+							precio = "<div class='area-ecommerce-nodisponible masInfo' id='@ean' onclick='redirectNoDisponible(this,true,*"+elementoActual+"*)'> </div>";
+							precio = precio.replace("@ean",ean)
+							// SALVAJADA PARA PODER CONCATENAR EL ELEMENTO ACTUAL, REEMPLAZO LOS * POR " 
+							precio = precio.replace("*",'"')
+							precio = precio.replace("*",'"')
+						}
+                        else{
+							precio = "<div class='area-ecommerce-nodisponible masInfo' id='@ean' onclick='redirectNoDisponible(this)'> </div>";
+							precio = precio.replace("@ean",ean)
+						}
+					}
+					$(".area-ecommerce-boton-compra-online-off").show();
+				}
+				
+				
+				$(".area-ecommerce-boton-compra-online").show();
+				
+					if (descuento != "0" && descuento != "null" && activo_ecommerce == "True" && precio != "0") {
+						
+						//console.log(data_ean[index].precio);
+						data_ean[index].precio = parseFloat(data_ean[index].precio);
+						/*data_ean[index].precio = Math.round(data_ean[index].precio,1)*/
+						descuento = "<div class='area-ecommerce-descuento'>" + eval(parseFloat(data_ean[index].descuento).toFixed(2)).toString() + "%</div>";
+						
+						var precio_descuento = eval(parseFloat(data_ean[index].precio) - parseFloat(data_ean[index].precio) * parseFloat(data_ean[index].descuento) / 100);
+						// precio_descuento = Math.round(precio_descuento * 100) / 100;
+						precio_descuento = (precio_descuento * 100) / 100;
+						/*precio_descuento = Math.round(precio_descuento)*/
+						
+						//CALCULO AFIP.
+						var precio_por_unidad = mostrarPrecioPorUnidad(precio_descuento,presentacion);
+						var precio_sin_impuestos = mostrarPrecioSinImpuestos(precio_descuento);
+						
+						precio = "<div class='area-ecommerce-precio-sin-descuento'>" + new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS'}).format(data_ean[index].precio) + "</div><div class='area-ecommerce-precio-con-descuento'>" +new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS'}).format(precio_descuento) + "</div>";
+						
+
+						precio = precio.replace("ARS","");
+				
+						
+						
+						
+						
+						//Sumar legales de AFIP			
+						precio += "<div class='precio-afip'><div class='precio-afip-unidad'>" + precio_por_unidad + "</div><div class='precio-afip-impuestos'>" + precio_sin_impuestos + "</div></div>";
+						
+					}
+					else {
+						descuento = "";
+					}	
+				$('div[data-ecommerce_ean="' + ean.toString() + '"]').html("");
+				$('div[data-ecommerce_ean="' + ean.toString() + '"]').append(descuento);
+				$('div[data-ecommerce_ean="' + ean.toString() + '"]').append(boton);
+				$('div[data-ecommerce_ean="' + ean.toString() + '"]').append("<div class='itemGrillaPrecio'>" + precio + "</div>");
+				$('div[data-ecommerce_ean="' + ean.toString() + '"]').removeClass("area-ecommerce-loading");
+			});
+			
+			if ($(".area-ecommerce-boton-agregar-off").find().prevObject.length== 0){
+				$(".area-ecommerce-boton-compra-online-off").hide()
+				$(".area-ecommerce-boton-compra-online").show()
+			}
+			if ($(".area-ecomm-ficha .area-ecommerce-nodisponible").find().prevObject.length> 0){
+				$(".area-ecommerce-boton-compra-online").hide()
+				$(".area-ecommerce-boton-compra-online-off").show()
+				
+			}
+			
+			$(".area-ecommerce-boton-agregar").click(function () {
+                //Modificado para mostrar un cartel de procesando
+				
+				if (!$(this).hasClass("area-ecommerce-boton-agregado")) {
+					$(this).addClass("area-ecommerce-boton-procesando");
+					$(this).html("&nbsp;");
+					var sku = $(this).attr("data-agregar_ean");
+					
+					//Evaluo si ya hay token creado, si no lo está pido TOKEN ya sea del usuario logueado o creo un usuario genérico
+					if ((client_token == "" && client_email == "") || (client_token == undefined && client_email == undefined)) {
+						autenticar_usuario(sku);
+					}
+					else
+					{
+						agregar_carrito(sku, loadLs('ZettiClientToken'), loadLs('ZettiClientEmail'), 1);
+					}	
+				}
+			});
+		});
+	}
+}
+function redirectNoDisponible(ev,estado = false,elemento = ""){
+	if (estado){
+		
+		window.location.href = document.getElementById(elemento).href
+	}else{
+		window.location.href = document.getElementById(ev.id).href
+	}
+}
+function autenticar_usuario(sku) {
+
+	//Validar si el usuario está logueado en el sitio web y seteo las COOKIES
+    let domain = getCurrentDomain().toLowerCase();
+    console.log("🚀 ~ autenticar_usuario ~ domain:", domain)
+    let urlSite = "";
+    if(domain == "bushi" || domain == "pruri")
+        urlSite = "https://www.andromaco.com/DesktopModules/DnnSharp/DnnApiEndpoint/Api.ashx?method=ecommerce_anonimo_getCurrentUser";
+    else
+        urlSite = "/DesktopModules/DnnSharp/DnnApiEndpoint/Api.ashx?method=ecommerce_getCurrentUser";
+
+	$.ajax({
+		method: "GET",
+		url: urlSite,
+		data: {},
+		async: false,
+		error: function (xhr, status, error) {
+			var err = eval("(" + xhr.responseText + ")");
+			console.log(err)
+		}
+	}).done(function (current_user) {
+
+		var json_current_user = $.parseJSON(current_user);
+		//Si el usuario esta logueado pido TOKEN de este usuario.	
+		if(json_current_user.email != "-1" && json_current_user.email != undefined)
+		{
+			console.log("USUARIO LOGUEADO, PIDO TOKEN DE ESTE USER A TIENDA");
+			
+			// typeof
+			var salesForcesId = null;
+		
+			if ( json_current_user.sfid == "*******" || json_current_user.sfid == null || json_current_user.sfid == "Null" || json_current_user.sfid == "NULL"  || json_current_user.sfid == "" ){
+				// le doy el valor salesForcesId Generico
+				salesForcesId =  "0013m00002KyNEaAAN";
+			}else{
+				salesForcesId = json_current_user.sfid;
+				
+			}
+			
+			//Pido token para el usuario logueado
+			$.ajax({
+					type: "POST",
+					url: "https://www.andromaco.com/DesktopModules/DnnSharp/DnnApiEndpoint/Api.ashx?method=ecommerce_autenticar",
+					async: false,
+					data: { "nyap": json_current_user.nyap, "email": json_current_user.email, "dni": json_current_user.dni, "website": json_current_user.website, "sfid": salesForcesId }
+			}).done(function (response) {
+				var json_response = $.parseJSON(response);
+				set_ecommerce_cookies(json_response, json_current_user.email);
+				agregar_carrito(sku, loadLs('ZettiClientToken'), loadLs('ZettiClientEmail'), 1);
+			}).fail(function () {
+				alert("Error autenticando en ecommerce");
+			});	
+		}
+		//Si el usuario es ANONIMO.
+		else
+		{
+			//Pido un usuario generico y su Token
+			console.log("USUARIO NO LOGUEADO, GENERO ANONIMO Y PIDO TOKEN DE ESTE USER ANONIMO A TIENDA")
+			$.ajax({
+				type: "POST",
+				url: "https://www.andromaco.com/DesktopModules/DnnSharp/DnnApiEndpoint/Api.ashx?method=ecommerce_set_anonimo",
+				data: {} 
+			}).done(function( anonimo ) {
+				var json_anonimo = $.parseJSON(anonimo);
+				if(json_anonimo.status == "OK")
+				{
+					//Con el mail anonimo lo que hago es obtener los tokens.
+					$.ajax({
+						type: "POST",
+						url: "https://www.andromaco.com/DesktopModules/DnnSharp/DnnApiEndpoint/Api.ashx?method=ecommerce_autenticar",
+						async: false,
+						data: { "nyap": "Anonimo", "email": json_anonimo.mail, "dni": "12345", "website": getCurrentDomain(), "sfid": "0013m00002KyNEaAAN" }
+					}).done(function (response) {
+						var json_response = $.parseJSON(response);
+						set_ecommerce_cookies(json_response, json_anonimo.mail);
+						agregar_carrito(sku, loadLs('ZettiClientToken'), loadLs('ZettiClientEmail'), 1);
+					}).fail(function () {
+						alert("Error autenticando en ecommerce");
+					});
+				}
+			});
+			
+		}	
+		
+	});
+
+}
+
+
+function imgCarrito(){
+	return "<svg viewBox='0 0 24 24'><path d='M10 19.5c0 .829-.672 1.5-1.5 1.5s-1.5-.671-1.5-1.5c0-.828.672-1.5 1.5-1.5s1.5.672 1.5 1.5zm3.5-1.5c-.828 0-1.5.671-1.5 1.5s.672 1.5 1.5 1.5 1.5-.671 1.5-1.5c0-.828-.672-1.5-1.5-1.5zm1.336-5l1.977-7h-16.813l2.938 7h11.898zm4.969-10l-3.432 12h-12.597l.839 2h13.239l3.474-12h1.929l.743-2h-4.195z'/></svg>"
+}
+
+function renderbtnAgregar(ean){
+	//return "<div class='area-ecommerce-boton-agregar' data-agregar_ean='" + ean.toString() + "'> " + imgCarrito() +" &nbsp;&nbsp;<span>AGREGAR</span> </div>";
+	return "<div class='area-ecommerce-boton-agregar' data-agregar_ean='" + ean.toString() + "'> " + "<span>AGREGAR AL CARRITO</span> </div>";
+}
+
+function set_current_user_cart() {
+
+    let domain = getCurrentDomain().toLowerCase();
+    let urlSite = "";
+    if(domain == "bushi" || domain == "pruri")
+        urlSite = "https://www.andromaco.com/DesktopModules/DnnSharp/DnnApiEndpoint/Api.ashx?method=ecommerce_anonimo_getCurrentUser";
+    else
+        urlSite = "/DesktopModules/DnnSharp/DnnApiEndpoint/Api.ashx?method=ecommerce_getCurrentUser";
+	$.ajax({
+		method: "GET",
+		url: urlSite,
+		data: {},
+		async: false,
+		error: function (xhr, status, error) {
+			var err = eval("(" + xhr.responseText + ")");
+			console.log(err)
+		}
+	}).done(function (current_user) {
+
+		var json_current_user = $.parseJSON(current_user);
+		/*Si está autenticado*/
+		client_dni = json_current_user.dni;
+		
+		// typeof
+		var salesForcesId = null;
+		
+			if ( json_current_user.sfid == "*******" || json_current_user.sfid == null || json_current_user.sfid == "Null" || json_current_user.sfid == "NULL"  || json_current_user.sfid == "" ){
+				// le doy el valor salesForcesId Generico
+				salesForcesId =  "0013m00002KyNEaAAN";
+			}else{
+				salesForcesId = json_current_user.sfid;
+				
+			}
+			
+			// alert("valor: ",salesForcesId);
+		if (client_dni != "-1") {
+			/*Si tengo credenciales armo carrito, sino gestiono nuevo token*/
+			if ((client_token != "" && client_email != "") && (client_token != undefined && client_email != undefined)) {
+				get_carrito();
+			}
+			else {
+				$.ajax({
+					type: "POST",
+					url: "https://www.andromaco.com/DesktopModules/DnnSharp/DnnApiEndpoint/Api.ashx?method=ecommerce_autenticar",
+					async: false,
+					data: { "nyap": json_current_user.nyap, "email": json_current_user.email, "dni": json_current_user.dni, "website": json_current_user.website, "sfid": salesForcesId }
+				}).done(function (response) {
+					var json_response = $.parseJSON(response);
+
+					set_ecommerce_cookies(json_response, json_current_user.email);
+
+
+				}).fail(function () {
+					alert("Error autenticando en ecommerce");
+				});
+			}
+		}
+	});
+}
+
+
+
+function getCurrentDomain(){
+
+	var ubicacion = window.location.hostname;
+
+    if (ubicacion.includes("aveno")){
+        return "aveno"
+    }
+    if (ubicacion.includes("dermagl")){
+        return "dmg"
+    }
+
+    if (ubicacion.includes("hipogl")){
+        return "hipo"
+    }
+
+    if (ubicacion.includes("bushi")){
+        return "bushi"
+    }
+	
+	if (ubicacion.includes("prurisedan")){
+        return "pruri"
+    }
+
+}
+
+$(document).ready(function () {
+
+
+	
+	$(".btn-compra-online").click(function (e) {
+		e.preventDefault();
+		$(".carrito-ecommerce").addClass("carrito-ecommerce-show");
+
+	});
+
+	$(".carrito-volver").click(function () {
+		$(".carrito-ecommerce").removeClass("carrito-ecommerce-show");
+
+	});
+
+	traer_precios();
+	
+
+	if (loadLs('ZettiClientToken') != undefined) {
+		client_token = loadLs('ZettiClientToken')
+	}
+
+	if (loadLs('ZettiClientEmail') != undefined) {
+		client_email = loadLs('ZettiClientEmail')
+	}
+	
+	if (loadLs('ZettiClientFecha') != undefined) {
+		client_fecha = loadLs('ZettiClientFecha');
+		
+		/*Si pasaron 24hs limpio las cookies*/
+		let ahora = Date.now();
+		let dif = eval(parseInt(ahora) - parseInt(client_fecha));
+		if(dif > eval(60*60*24*1000))
+		{
+			if(debug)
+			{
+				console.log("BORRO LAS COOKIES POR SER MAYOR A 24hs");
+			}
+			clear_ecommerce_cookies();
+		}
+		
+	}
+	
+	if(client_token)
+	{
+		if(debug)
+		{
+			console.log("EMAIL ACTUAL " + client_email + " CON TOKEN " + client_token);
+		}
+	}
+
+	
+	
+	
+	/*Si el usuario logueado es distinto del anonimo, cambio los tokens*/
+	if(client_token)
+	{	
+        let domain = getCurrentDomain().toLowerCase();
+        console.log("🚀 ~ domain:", domain)
+        let urlSite = "";
+        if(domain == "bushi" || domain == "pruri")
+            urlSite = "https://www.andromaco.com/DesktopModules/DnnSharp/DnnApiEndpoint/Api.ashx?method=ecommerce_anonimo_getCurrentUser";
+        else
+            urlSite = "/DesktopModules/DnnSharp/DnnApiEndpoint/Api.ashx?method=ecommerce_getCurrentUser";
+		$.ajax({
+			method: "GET",
+			url: urlSite,
+			data: {},
+			async: false,
+			error: function (xhr, status, error) {
+				var err = eval("(" + xhr.responseText + ")");
+				console.log(err)
+			}
+		}).done(function (current_user) {
+			
+			var json_current_user = $.parseJSON(current_user);
+			/*Si está autenticado*/
+			client_dni = json_current_user.dni;
+			/*Si esta logueado y tiene DNI distinto de -1, reinicio el carrito gestionando un nuevo token*/
+			if(client_dni != "-1")
+			{
+				clear_ecommerce_cookies();
+				if(debug)
+				{
+					console.log("COMO ESTOY LOGUEADO PIDO TOKEN DEL USUARIO LOGUEADO");
+				}
+				set_current_user_cart();	
+				if(debug)
+				{
+					console.log("ARMO EL CARRITO DEL USUARIO " + client_email + " CON TOKEN " + client_token);
+				}
+				get_carrito();			
+			}
+			else
+			{
+				
+				/*Si el usuario estaba logueado y ahora se desloguea, tengo que eliminar el token si es distitno de megashop*/
+				if(client_email.indexOf("@mediashop.com")<0)
+				{
+					clear_ecommerce_cookies();			
+					if(debug)
+					{
+						console.log("COMO ME DESLOGUEO BORRO TOKEN DE USUARIO NO ANONIMO");
+					}
+				}
+				
+				if(client_token)
+				{
+					if(debug)
+					{
+						console.log("ARMO EL CARRITO DEL USUARIO " + client_email + " CON TOKEN " + client_token);
+					}
+					/*Sino armo el carrito del token actual*/
+					if ((client_token != "" && client_email != "") && (client_token != undefined && client_email != undefined)) {
+						get_carrito();
+					}
+
+					if (loadLs('seLogueo') && loadLs('ZettiClientToken') != undefined && (loadLs('ZettiClientEmail') != undefined)) {
+						if (loadLs('skuProduct') != undefined) {
+							agregar_carrito(loadLs('skuProduct'), loadLs('ZettiClientToken'), loadLs('ZettiClientEmail'), 1)
+							//AG: VALIDACIÓN PARA SABER SI HAY UN PRODUCTO CARGADO NO ESTANDO LOGUEADO.
+							$(".carrito-ecommerce").addClass("carrito-ecommerce-show");
+						}
+						removeLs('seLogueo')
+						get_carrito();
+					}	
+				}
+				
+			}
+			
+		});
+	
+	}
+});

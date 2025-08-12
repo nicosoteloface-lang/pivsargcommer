@@ -1,0 +1,293 @@
+/*FUNCION PARA VALIDAR SOLO NROS*/
+// import{prueba} from "./ecommerce.js";
+$.fn.OnlyNumbers = function (fnc) {
+	return this.each(function () {
+		$(this).keydown(function (e) {
+			var key = e.charCode || e.keyCode || 0;
+			return (
+				key == 8 ||
+				key == 9 ||
+				key == 13 ||
+				key == 46 ||
+				key == 110 ||
+				key == 190 ||
+				(key >= 35 && key <= 40) ||
+				(key >= 48 && key <= 57) ||
+				(key >= 96 && key <= 105));
+		});
+	});
+}
+
+/*FUNCION PARA DETECTAR PRESION DE ENTER*/
+$.fn.enterKey = function (fnc) {
+	return this.each(function () {
+		$(this).keydown(function (e) {
+			var key = e.charCode || e.keyCode || 0;
+			if (key == 13) {
+				fnc.call(this, e);
+			}
+		});
+	});
+}
+
+function buildRegistracion(){
+	$(".menu-caja-login-ecommerce").hide();
+	$(".menu-caja-login-ecommerce").hide();
+	$(".popup-eventos-ecommerce-registro").show();
+	// $(".prueba").show();
+}
+
+function cerrarPopUp(){
+
+	$(".menu-caja-login-ecommerce").hide();
+	$(".popup-eventos-ecommerce-bk").hide();
+	$(".popup-eventos-ecommerce-registro").hide();
+	$(".popup-eventos-ecommerce-login").hide();
+
+}
+
+function ecommerce_login_usuario() {
+
+	if ($('#login-txtDNI').val() != "" && $('#login-txtClave').val() != "") {
+		if ($.isNumeric($('#login-txtDNI').val()) && ($('#login-txtDNI').val().length >= 7 && $('#login-txtDNI').val().length <= 8)) {
+			$(".menu-caja-login-error").slideUp(100);
+			$.blockUI({ message: '<img src="/portals/0/images/loading.gif" alt="preload"/>', css: { width: '100px', left: '50%', marginLeft: '-50px', border: 'none', backgroundColor: 'transparent', zIndex: '10020' }, overlayCSS: { opacity: 0.2, zIndex: '10010' } });
+			$.ajax({
+				method: "POST",
+				url: "/DesktopModules/DnnSharp/DnnApiEndpoint/Api.ashx?method=loginUser",
+				data: { dni: $('#login-txtDNI').val(), clave: $('#login-txtClave').val() }
+			})
+				.done(function (msg) {
+					if (msg.indexOf("Login failed!") >= 0) {
+						$.unblockUI();
+						$(".menu-caja-login-error").slideUp(100).queue(function () {
+							$(this).html("¡FALL&Oacute; EL INGRESO AL SITIO!<br>Record&aacute; que las claves distinguen entre may&uacute;sculas y min&uacute;sculas.");
+							$(this).slideDown(100);
+							$(this).dequeue();
+						});
+					}
+					else {
+
+						var objectUser = $.parseJSON(msg);
+
+						$.ajax({
+							method: "POST",
+							url: "/DesktopModules/DnnSharp/DnnApiEndpoint/Api.ashx?method=ecommerce_getCurrentUserByUserid",
+							data: objectUser.userid
+						}).done(function (current_user) {
+
+							var json_current_user = $.parseJSON(current_user);
+							/*Si está autenticado*/
+							client_dni = json_current_user.dni;
+
+							key_log=setLs('seLogueo', 'true')
+							if (client_dni != "-1") {
+								$.ajax({
+									type: "POST",
+									url: "https://www.andromaco.com/DesktopModules/DnnSharp/DnnApiEndpoint/Api.ashx?method=ecommerce_autenticar",
+									data: { "nyap": json_current_user.nyap, "email": json_current_user.email, "dni": json_current_user.dni, "website": json_current_user.website, "sfid": json_current_user.sfid }
+								}).done(function (response) {
+									var json_response = $.parseJSON(response);
+									set_ecommerce_cookies(json_response, json_current_user.email);
+									location.reload();
+								}).fail(function () {
+									alert("Error autenticando en ecommerce");
+								});
+							}
+						});
+
+
+					}
+				});
+
+
+
+
+		}
+		else {
+			$(".menu-caja-login-error").slideUp(100).queue(function () {
+				$(this).html("El DNI ingresado es inv&aacute;lido.");
+				$(this).slideDown(100);
+				$(this).dequeue();
+			});
+		}
+	}
+	else {
+		$(".menu-caja-login-error").slideUp(100).queue(function () {
+			$(this).html("Debe ingresar su DNI y clave "+site);
+			$(this).slideDown(100);
+			$(this).dequeue();
+		});
+	}
+}
+
+function ecommerce_restablecer_clave() {
+	var mensaje = "";
+	var apiKey = ""
+	if (urlDomain.includes("dermagl")){
+		mensaje = '<img src="/portals/0/images/loading.gif" alt="preload"/>';
+
+	}
+	if (urlDomain.includes("hipogl")){
+		mensaje = '<img src="/portals/0/images/loading.gif" alt="preload"/>';
+	}
+	
+	if (urlDomain.includes("aveno")){
+		mensaje = '<img src="/portals/0/images/loading.gif" alt="preload"/>';
+		apiKey = "2CUzoK2ttwU8gMX1dek4qy8Ici2LGZfh";
+	}
+	
+	if ($('#login-txtDNIOlvido').val() != "") {
+		if ($.isNumeric($('#login-txtDNIOlvido').val()) && ($('#login-txtDNIOlvido').val().length >= 7 && $('#login-txtDNIOlvido').val().length <= 8)) {
+			var currenturl = window.location.href;
+			$(".menu-caja-recordar-error").slideUp(100);
+			$.blockUI({ message: mensaje, css: { width: '100px', left: '50%', marginLeft: '-50px', border: 'none', backgroundColor: 'transparent', zIndex: '10020' }, overlayCSS: { opacity: 0.2, zIndex: '10010' } });
+			$.ajax({
+				method: "POST",
+				url: "/DesktopModules/DnnSharp/DnnApiEndpoint/Api.ashx?method=sendForgotPasswordAutologin",
+				data: { dni: $('#login-txtDNIOlvido').val(),url: urlRedirect,apikey:apiKey },
+				async: false
+			})
+				.done(function (msg) {
+					var obj = $.parseJSON(msg);
+					if (obj.datos.mensaje == "failed") {
+						$.unblockUI();
+						$(".menu-caja-recordar-error").slideUp(100).queue(function () {
+							$(this).html("No se ha podido enviar el email de restablecimiento de clave. Revise si su DNI es correcto.");
+							$(this).css("color", "");
+							$(this).slideDown(100);
+							$(this).dequeue();
+						});
+					}
+					else if (obj.datos.mensaje == "success") {
+						$.unblockUI();
+						$(".menu-caja-recordar-error").slideUp(100).queue(function () {
+						
+			
+							$(this).html("Se ha enviado un email a " + obj.datos.email + " con los pasos a seguir para restablecer su clave.");
+							$(this).css("color", "#0d6739");
+							$(this).css("word-break", "break-word");
+							debugger;
+							$('#recordar_area>div').find("div").slideUp(100);
+							
+							
+							// $(this).slideDown(100);
+							// $(this).dequeue();
+							$(".menu-caja-recordar-error").show();
+						});
+						// setTimeout(function () {
+							 // $('#recordar_area>div').find("div").show();
+							 // $(".menu-caja-recordar-error").show();
+							 // $(".btn-login").removeClass("btn-login-on");
+							 // $(".menu-caja-login").removeClass("menu-caja-login-on");
+							 // $(".menu-caja-login-background").hide();
+							 // // debugger;
+							 // // cerrarPopUp();
+							
+							 // ecommerce_olvido_clave(1);
+						 // },3500);
+						 
+						 setTimeout(function () {
+							 // debugger;
+							 cerrarPopUp();
+							
+						 },5500);
+
+					}
+				});
+		}
+		else {
+			$(".menu-caja-recordar-error").slideUp(100).queue(function () {
+				$(this).html("El DNI ingresado es inv&aacute;lido");
+				$(this).slideDown(100);
+				$(this).dequeue();
+			});
+		}
+	}
+	else {
+		$(".menu-caja-recordar-error").slideUp(100).queue(function () {
+			$(this).html("Debe ingresar su DNI.");
+			$(this).slideDown(100);
+			$(this).dequeue();
+		});
+	}
+
+}
+
+function ecommerce_olvido_clave(sentido) {
+	if (sentido == 0) {
+		$('#login_area').slideUp(100);
+		$('#recordar_area').delay(100).slideDown(100);
+	}
+	else {
+		$('#recordar_area').slideUp(100);
+		$('#login_area').delay(100).slideDown(100);
+		
+	}
+}
+var urlDomain="";
+var urlRedirect="";
+var site ="";
+$(document).ready(function () {
+	
+	var ubicacion = window.location.hostname;
+
+		if (ubicacion.includes("aveno")){
+			urlDomain = "https://www.aveno.com.ar";
+			urlRedirect = "nuestros-productos";
+			site = "Aveno";
+		}
+		if (ubicacion.includes("dermagl")){
+			urlDomain = "https://www.dermaglos.com";
+			urlRedirect = "linea-de-productos";
+			site = "Dermaglós";
+		}
+		if (ubicacion.includes("hipogl")){
+			urlDomain = "https://www.hipoglos.com";
+			redirect = "productos";
+			site = "Hipoglós";
+		}
+	$(".btn-login").click(function () {
+		/* Si no esta desplegado el login*/
+		$(".area-menu-accesos-secciones").removeClass("area-menu-accesos-secciones-on");
+		$(".menu-caja-accesos-background").hide();
+		if (!$(this).hasClass("btn-login-on")) {
+			$(this).addClass("btn-login-on");
+			$(".menu-caja-login").addClass("menu-caja-login-on");
+			$(".menu-caja-login-input input").focus();
+			$(".menu-caja-login-background").show();
+		}
+	});
+
+
+	$('#login-txtDNI').OnlyNumbers();
+	$('#login-txtDNIOlvido').OnlyNumbers();
+
+	/*INTENTO LOGUEAR CON ENTER SOBRE CLAVE*/
+	$('#login-txtClave').enterKey(function (e) {
+		ecommerce_login_usuario();
+	});
+
+	/*REALIZAR BUSQUEDAS SIEMPRE Y CUANDO HAYA TERMINOS QUE BUSCAR*/
+
+	/*
+		$(".btn-menu-buscar input").on("search",function(){
+		
+		if($(this).val() != "")
+		{
+		   location.href = "/busqueda?sb-search=" + $(this).val();
+		}
+	});
+	
+
+	/*CIERRE DEL LOGIN*/
+	$(".menu-caja-login-background").click(function () {
+		$(".btn-login").removeClass("btn-login-on");
+		$(".menu-caja-login").removeClass("menu-caja-login-on");
+		$(".menu-caja-login-background").hide();
+	});
+
+
+
+
+});

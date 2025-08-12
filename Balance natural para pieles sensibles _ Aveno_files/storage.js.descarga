@@ -1,0 +1,23 @@
+function loadLs(key) {
+    let ls = localStorage.getItem(key);
+    if (ls == null || ls==undefined) {
+        return null;
+    }
+    else {
+        var decrypted = CryptoJS.AES.decrypt(ls, "LOCK");
+        return JSON.parse(decrypted.toString(CryptoJS.enc.Utf8));
+    }
+}
+function setLsWithExpiration(key, variableValor,expiration = null ) {
+    var encrypted = CryptoJS.AES.encrypt(JSON.stringify(variableValor), "LOCK");
+    localStorage.setItem(key, encrypted);
+}
+
+function setLs(key, variableValor ) {
+    var encrypted = CryptoJS.AES.encrypt(JSON.stringify(variableValor), "LOCK");
+    localStorage.setItem(key, encrypted);
+}
+
+function removeLs(key) {
+    localStorage.removeItem(key);
+}
